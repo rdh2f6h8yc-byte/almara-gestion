@@ -2,8 +2,22 @@
 
 App web para llevar la gestión del autónomo de ALMARA: facturas, gastos, modelos 303 y 130, cuota de autónomos y calendario fiscal.
 
-- Es una sola página (`index.html`), sin compilación. En Vercel: importar el repositorio y desplegar sin cambiar nada.
-- Los datos se guardan en el navegador y, si se conecta desde Ajustes, se sincronizan en Supabase.
-- Para Supabase: ejecutar `supabase.sql` en el SQL Editor del proyecto.
+- `index.html`: la app (una sola página, sin compilación).
+- `api/leer-factura.js`: lee una foto o PDF de una factura con Claude y devuelve sus datos.
+- `supabase.sql`: tabla de datos y carpeta privada de fotos en Supabase.
 
-Los cálculos de impuestos son orientativos (estimación directa simplificada).
+## Vercel
+Importar el repositorio y desplegar sin cambiar nada. En *Settings → Environment Variables* añadir:
+
+| Variable | Valor |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | clave de la API de Anthropic |
+| `SUPABASE_URL` | URL del proyecto de Supabase |
+| `SUPABASE_ANON_KEY` | clave anon del proyecto |
+
+Después, *Redeploy*.
+
+## Archivos para Hacienda
+En Impuestos, el botón «Archivo para Hacienda» genera `303.txt` y `130.txt` con el diseño de registro oficial de la AEAT (303 versión 1.01 de 2026; 130 versión 1.2), listos para «Importar» en el formulario de la sede.
+
+Los cálculos son orientativos (estimación directa simplificada): revisar antes de presentar.

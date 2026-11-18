@@ -17,3 +17,17 @@ create policy "gestion_insert_own" on public.gestion
   for insert with check (auth.uid() = user_id);
 create policy "gestion_update_own" on public.gestion
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Fotos de facturas (privadas: cada usuario solo ve su carpeta)
+insert into storage.buckets (id, name, public)
+values ('facturas', 'facturas', false)
+on conflict (id) do nothing;
+
+create policy "facturas_select_own" on storage.objects
+  for select using (bucket_id = 'facturas' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "facturas_insert_own" on storage.objects
+  for insert with check (bucket_id = 'facturas' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "facturas_update_own" on storage.objects
+  for update using (bucket_id = 'facturas' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "facturas_delete_own" on storage.objects
+  for delete using (bucket_id = 'facturas' and (storage.foldername(name))[1] = auth.uid()::text);

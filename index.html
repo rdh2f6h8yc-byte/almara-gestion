@@ -106,6 +106,8 @@ label.fl{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:6
 .md .hd h2{margin:0;flex:1}
 .md .ft{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
 .md .ft .sp{flex:1}
+.spin{width:34px;height:34px;border:3px solid var(--accent2);border-top-color:var(--accent);border-radius:50%;margin:6px auto 0;animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
 .toast{position:fixed;left:50%;bottom:calc(84px + var(--safe-b));transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;z-index:80;opacity:0;transition:opacity .2s;pointer-events:none}
 .toast.show{opacity:1}
 .search{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:6px;background:#fff}
@@ -172,7 +174,7 @@ const LS = {
 /* ============ Datos ============ */
 const DEFAULT = {
   settings: {
-    nombre: 'Alin Nicusor Florei', comercial: 'ALMARA', nif: '',
+    nombre: 'Alin Nicusor Florei', apellidos: 'Florei', nombrePila: 'Alin Nicusor', comercial: 'ALMARA', nif: '', domiciliar: false,
     direccion: 'Calle Valls d’Andorra, 58', cp: '25005', ciudad: 'Lleida', provincia: 'Lleida',
     telefono: '623 916 122', email: 'contacto@almara.group', web: '', iban: '',
     serie: 'F', irpfDefecto: 0, ivaDefecto: 21, cuotaAutonomo: 0,
@@ -226,12 +228,22 @@ function m303(y, q){
   });
   let baseDed = 0, cuotaDed = 0;
   S.gastos.filter(g => inQ(g.fecha, y, q)).forEach(g => { const t = gasTotals(g); if (t.ivaDed > 0){ baseDed += t.base * (+g.ivaDed ?? 100) / 100; cuotaDed += t.ivaDed; } });
-  const diff = r2(devTot - cuotaDed);
-  // compensación de trimestres anteriores del mismo año
-  let comp = 0;
-  if (q > 1){ const prev = m303(y, q - 1); if (prev.resultado < 0) comp = -prev.resultado; }
-  const resultado = r2(diff - comp);
-  return {dev, devTot:r2(devTot), isp:r2(isp), baseDed:r2(baseDed), cuotaDed:r2(cuotaDed), diff, comp:r2(comp), resultado};
+  const diff = r2(devTot - cuotaDed); // casilla 46 (= 64 = 66 al 100 %)
+  // Cuotas a compensar de periodos anteriores (se arrastran trimestre a trimestre y de un año a otro)
+  let c110 = 0;
+  const prev = q > 1 ? m303(y, q - 1) : (y - 1 >= minYear() ? m303(y - 1, 4) : null);
+  if (prev) c110 = prev.pendiente;
+  const c78 = r2(diff > 0 ? Math.min(c110, diff) : 0);
+  const c87 = r2(c110 - c78);
+  const resultado = r2(diff - c78); // casilla 69 = 71
+  const pendiente = r2(c87 + (resultado < 0 ? -resultado : 0));
+  const sinActividad = !devTot && !cuotaDed && !isp;
+  return {dev, devTot:r2(devTot), isp:r2(isp), baseDed:r2(baseDed), cuotaDed:r2(cuotaDed), diff, c110:r2(c110), comp:c78, c78, c87, resultado, pendiente, sinActividad};
+}
+function minYear(){
+  let m = new Date().getFullYear();
+  S.facturas.forEach(f => m = Math.min(m, yOf(f.fecha))); S.gastos.forEach(g => m = Math.min(m, yOf(g.fecha)));
+  return m;
 }
 function m130(y, q){
   let ing = 0, gas = 0, ret = 0;
@@ -241,15 +253,16 @@ function m130(y, q){
   const gdj = S.settings.gdj && previo > 0 ? Math.min(2000, previo * 0.05) : 0;
   const c03 = r2(previo - gdj);
   const c04 = c03 > 0 ? r2(c03 * 0.20) : 0;
-  let c05 = 0;
-  for (let i = 1; i < q; i++){ const p = m130(y, i); if (p.final > 0) c05 += p.final; }
+  let c05 = 0; // suma de las casillas 07 positivas de los trimestres anteriores
+  for (let i = 1; i < q; i++){ const p = m130(y, i); if (p.c07 > 0) c05 += p.c07; }
   const c06 = r2(ret);
   const c07 = r2(c04 - c05 - c06);
-  let c13 = 0; const ra = S.settings.rendAnterior;
-  if (ra !== '' && ra != null){ const v = +ra; c13 = v <= 9000 ? 100 : v <= 10000 ? 75 : v <= 11000 ? 50 : v <= 12000 ? 25 : 0; }
-  const res = r2(c07 > 0 ? Math.max(0, c07 - c13) : c07);
+  let ded = 0; const ra = S.settings.rendAnterior;
+  if (ra !== '' && ra != null){ const v = +ra; ded = v <= 9000 ? 100 : v <= 10000 ? 75 : v <= 11000 ? 50 : v <= 12000 ? 25 : 0; }
+  const c13 = r2(c07 > 0 ? Math.min(ded, c07) : 0);
+  const res = r2(c07 - c13); // casillas 14 = 17 = 19
   const final = r2(Math.max(0, res));
-  return {ing:r2(ing), gas:r2(gas), gdj:r2(gdj), c03, c04, c05:r2(c05), c06, c07, c13, res, final};
+  return {ing:r2(ing), gas:r2(gas), gdj:r2(gdj), c02:r2(gas + gdj), c03, c04, c05:r2(c05), c06, c07, c13, res, final};
 }
 function yearSummary(y){
   let ing = 0, iva = 0, ret = 0, gas = 0, cobrado = 0, pendiente = 0, nPend = 0;
@@ -315,6 +328,15 @@ const Cloud = {
       this.badge('on', '☁ Sincronizado');
     } catch(e){ this.badge('err', 'Error nube'); console.warn(e); }
   },
+  async upload(path, blob){
+    const r = await fetch(`${this.url}/storage/v1/object/facturas/${path}`, {method:'POST', headers:{apikey:this.key, Authorization:'Bearer ' + await this.token(), 'Content-Type':blob.type, 'x-upsert':'true'}, body:blob});
+    if (!r.ok) throw new Error('No se pudo guardar la foto');
+  },
+  async fetchFile(path){
+    const r = await fetch(`${this.url}/storage/v1/object/authenticated/facturas/${path}`, {headers:{apikey:this.key, Authorization:'Bearer ' + await this.token()}});
+    if (!r.ok) throw new Error('No se encuentra la foto'); return r.blob();
+  },
+  async remove(path){ try { await fetch(`${this.url}/storage/v1/object/facturas/${path}`, {method:'DELETE', headers:{apikey:this.key, Authorization:'Bearer ' + await this.token()}}); } catch(e){} },
   logout(){ this.session = null; try { localStorage.removeItem('almara_gestion_sb'); } catch(e){} this.badge('', 'Local'); }
 };
 
@@ -366,6 +388,7 @@ function vInicio(){
     <div class="row" style="margin-bottom:14px">
       <button class="btn" onclick="editFactura()">+ Nueva factura</button>
       <button class="btn sec" onclick="editGasto()">+ Nuevo gasto</button>
+      <label class="btn sec" style="cursor:pointer">📷 Foto factura<input type="file" accept="image/*,application/pdf" multiple hidden onchange="fotoGastos(this.files);this.value=''"></label>
     </div>
     <div class="grid2">
       <div class="card">
@@ -545,7 +568,7 @@ const CATS = ['Material','Herramientas','Vehículo y combustible','Cuota de aut�
 let gBusca = '';
 function gasItem(g){
   const t = gasTotals(g);
-  return `<div class="it" onclick="editGasto('${g.id}')"><div class="m"><div class="t">${esc(g.proveedor || g.concepto || 'Gasto')}</div><div class="s">${fdate(g.fecha)} · ${esc(g.cat)}${g.concepto && g.proveedor ? ' · ' + esc(g.concepto) : ''}</div></div><div class="a num">${eur(t.total)}</div></div>`;
+  return `<div class="it" onclick="editGasto('${g.id}')"><div class="m"><div class="t">${esc(g.proveedor || g.concepto || 'Gasto')}</div><div class="s">${g.revisar ? '<span class="pill warn">Revisar</span> ' : ''}${g.foto ? '📎 ' : ''}${fdate(g.fecha)} · ${esc(g.cat)}${g.concepto && g.proveedor ? ' · ' + esc(g.concepto) : ''}</div></div><div class="a num">${eur(t.total)}</div></div>`;
 }
 function vGastos(){
   let list = S.gastos.filter(g => yOf(g.fecha) === YEAR);
@@ -556,7 +579,9 @@ function vGastos(){
   const curM = today().slice(0, 7);
   const tieneCuota = S.gastos.some(g => g.fecha.startsWith(curM) && g.cat === 'Cuota de autónomos');
   $('#view').innerHTML = `
-    <div class="row"><h1>Gastos</h1><span class="sp"></span><button class="btn" onclick="editGasto()">+ Nuevo</button></div>
+    <div class="row"><h1>Gastos</h1><span class="sp"></span>
+      <label class="btn sec" style="cursor:pointer">📷 Foto factura<input type="file" accept="image/*,application/pdf" multiple hidden onchange="fotoGastos(this.files);this.value=''"></label>
+      <button class="btn" onclick="editGasto()">+ Nuevo</button></div>
     <p class="sub">${list.length} gastos · ${eur(tot)} deducible en IRPF</p>
     ${!tieneCuota && YEAR === new Date().getFullYear() ? `<div class="card row" style="background:var(--accent2);border-color:#bfdcf7"><div class="m" style="flex:1"><b>Cuota de autónomos de este mes</b><div class="s" style="font-size:13px;color:var(--muted)">${S.settings.cuotaAutonomo ? eur(S.settings.cuotaAutonomo) : 'Pon tu cuota en Ajustes'} · es 100 % deducible</div></div><button class="btn sm" onclick="addCuota()">Añadir</button></div>` : ''}
     ${Object.keys(byCat).length ? `<div class="card"><h2>Por categoría</h2>${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([c,v]) => `<div style="margin:8px 0"><div class="row" style="font-size:13px"><span>${esc(c)}</span><span class="sp"></span><b class="num">${eur(v)}</b></div><div style="height:6px;background:#eef2f7;border-radius:9px;margin-top:4px"><div style="height:6px;border-radius:9px;background:var(--accent);width:${tot ? (v/tot*100).toFixed(1) : 0}%"></div></div></div>`).join('')}</div>` : ''}
@@ -571,9 +596,9 @@ function addCuota(){
 }
 const GDEF = {'Vehículo y combustible':{ivaDed:50, irpfDed:100}, 'Teléfono e internet':{ivaDed:100, irpfDed:100}, 'Cuota de autónomos':{ivaDed:100, irpfDed:100, iva:0}, 'Seguros':{iva:0}, 'Gestoría y asesoría':{}};
 let GD = null;
-function editGasto(id){
+function editGasto(id, pre){
   const ex = id ? S.gastos.find(g => g.id === id) : null;
-  GD = ex ? structuredClone(ex) : {id:uid(), fecha:today(), proveedor:'', nif:'', num:'', concepto:'', cat:'Material', base:'', iva:21, ivaDed:100, irpfDed:100};
+  GD = pre ? pre : ex ? structuredClone(ex) : {id:uid(), fecha:today(), proveedor:'', nif:'', num:'', concepto:'', cat:'Material', base:'', iva:21, ivaDed:100, irpfDed:100};
   const provs = [...new Set(S.gastos.map(g => g.proveedor).filter(Boolean))];
   modal(`
     <div class="hd"><h2>${ex ? 'Editar gasto' : 'Nuevo gasto'}</h2><button class="btn ghost sm" onclick="closeModal()">✕</button></div>
@@ -599,23 +624,91 @@ function editGasto(id){
         <label class="fl">% deducible IRPF<input id="gIrpfDed" type="number" min="0" max="100" value="${GD.irpfDed}" oninput="gPaint()"></label>
       </div>
       <div class="totbox" id="gtot"></div>
+      ${GD.foto ? `<button class="btn ghost" onclick="verFoto('${esc(GD.foto)}')">📎 Ver foto de la factura</button>` : ''}
+      ${GD.aviso ? `<p class="note" style="color:var(--warn)"><b>${esc(GD.aviso)}</b></p>` : ''}
       <p class="note">Vehículo: Hacienda suele aceptar el 50 % del IVA si también lo usas para lo personal. Para que un gasto cuente, guarda siempre la factura completa a tu nombre y NIF (el ticket simplificado no vale para deducir el IVA).</p>
     </div>
     <div class="ft">${ex ? '<button class="btn del" onclick="delGasto()">Borrar</button>' : ''}<span class="sp"></span><button class="btn" onclick="saveGasto()">Guardar</button></div>`);
+  if (pre && pre._readCat) catDef(GD.cat);
   gPaint();
 }
 function catDef(c){ const d = GDEF[c] || {}; if (d.ivaDed != null) $('#gIvaDed').value = d.ivaDed; if (d.irpfDed != null) $('#gIrpfDed').value = d.irpfDed; if (d.iva != null) $('#gIva').value = d.iva; gPaint(); }
 function fromTotal(){
   promptBox('Total pagado con IVA (€)', v => { const t = +String(v).replace(',', '.'); if (!t) return; const iva = +$('#gIva').value; $('#gBase').value = r2(t / (1 + iva / 100)); gPaint(); });
 }
-function gRead(){ return {...GD, fecha:$('#gFecha').value || today(), cat:$('#gCat').value, proveedor:$('#gProv').value.trim(), nif:$('#gNif').value.trim(), num:$('#gNum').value.trim(), concepto:$('#gCon').value.trim(), base:+String($('#gBase').value).replace(',', '.') || 0, iva:+$('#gIva').value, ivaDed:Math.min(100, Math.max(0, +$('#gIvaDed').value)), irpfDed:Math.min(100, Math.max(0, +$('#gIrpfDed').value))}; }
+function gRead(){ return {...GD, revisar:false, aviso:'', _readCat:undefined, fecha:$('#gFecha').value || today(), cat:$('#gCat').value, proveedor:$('#gProv').value.trim(), nif:$('#gNif').value.trim(), num:$('#gNum').value.trim(), concepto:$('#gCon').value.trim(), base:+String($('#gBase').value).replace(',', '.') || 0, iva:+$('#gIva').value, ivaDed:Math.min(100, Math.max(0, +$('#gIvaDed').value)), irpfDed:Math.min(100, Math.max(0, +$('#gIrpfDed').value))}; }
 function gPaint(){ const t = gasTotals(gRead()); $('#gtot').innerHTML = `<div><span>Total factura</span><b class="num">${eur(t.total)}</b></div><div><span>IVA que recuperas (303)</span><span class="num">${eur(t.ivaDed)}</span></div><div><span>Gasto que restas en IRPF (130)</span><span class="num">${eur(t.gastoIrpf)}</span></div>`; }
 function saveGasto(){
   const g = gRead(); if (!g.base) return toast('Pon el importe');
   const i = S.gastos.findIndex(x => x.id === g.id); if (i >= 0) S.gastos[i] = g; else S.gastos.push(g);
   save(); closeModal(); toast('Gasto guardado');
 }
-function delGasto(){ confirmBox('¿Borrar este gasto?', () => { S.gastos = S.gastos.filter(g => g.id !== GD.id); save(); closeModal(); toast('Gasto borrado'); }); }
+function delGasto(){ confirmBox('¿Borrar este gasto?', () => { if (GD.foto && Cloud.session && !S.gastos.some(g => g.id !== GD.id && g.foto === GD.foto)) Cloud.remove(GD.foto); S.gastos = S.gastos.filter(g => g.id !== GD.id); save(); closeModal(); toast('Gasto borrado'); }); }
+
+/* ============ Foto de factura → gasto (lectura con IA) ============ */
+function b64(blob){ return new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = ko; r.readAsDataURL(blob); }); }
+async function prepFile(file){
+  if (file.type === 'application/pdf'){
+    if (file.size > 3.2e6) throw new Error('El PDF pesa demasiado (máx. 3 MB)');
+    return {blob:file, mediaType:'application/pdf', ext:'pdf'};
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error('No se puede abrir la imagen')); i.src = url; });
+    const max = 1800, k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.82));
+    return {blob, mediaType:'image/jpeg', ext:'jpg'};
+  } finally { URL.revokeObjectURL(url); }
+}
+function progreso(txt){
+  let d = document.getElementById('prog');
+  if (!txt){ d && d.remove(); return; }
+  if (!d){ d = document.createElement('div'); d.id = 'prog'; d.className = 'ov'; d.style.zIndex = 70; d.innerHTML = '<div class="md" style="max-width:360px;text-align:center"><div class="spin"></div><p id="progTxt" style="margin-top:14px"></p></div>'; document.body.appendChild(d); }
+  d.querySelector('#progTxt').textContent = txt;
+}
+async function fotoGastos(files){
+  files = [...(files || [])]; if (!files.length) return;
+  if (!Cloud.session){ toast('Para leer facturas con foto, conecta la nube en Ajustes'); return go('ajustes'); }
+  const creados = []; let errores = 0;
+  for (let i = 0; i < files.length; i++){
+    progreso(files.length > 1 ? `Leyendo factura ${i + 1} de ${files.length}…` : 'Leyendo la factura…');
+    try {
+      const f = await prepFile(files[i]);
+      const r = await fetch('/api/leer-factura', {method:'POST', headers:{'Content-Type':'application/json', Authorization:'Bearer ' + await Cloud.token()}, body:JSON.stringify({data: await b64(f.blob), mediaType:f.mediaType})});
+      const d = await r.json().catch(() => ({error:'La app no está publicada en Vercel'}));
+      if (!r.ok) throw new Error(d.error || 'Error al leer');
+      if (d.es_factura === false) throw new Error('Esa foto no parece una factura');
+      const fotoId = uid(), path = `${Cloud.session.uid}/${fotoId}.${f.ext}`;
+      let foto = '';
+      try { await Cloud.upload(path, f.blob); foto = path; } catch(e){ console.warn(e); }
+      const des = (d.desglose && d.desglose.length) ? d.desglose : [{tipo_iva:21, base:r2((d.total || 0) / 1.21), cuota:0}];
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(d.fecha || '') ? d.fecha : today();
+      des.forEach((x, k) => {
+        const def = GDEF[d.categoria] || {};
+        creados.push({id:uid(), fecha, proveedor:d.proveedor || '', nif:(d.nif_proveedor || '').toUpperCase(), num:d.numero || '',
+          concepto:(d.concepto || '') + (des.length > 1 ? ` (IVA ${x.tipo_iva} %)` : ''), cat:CATS.includes(d.categoria) ? d.categoria : 'Otros',
+          base:r2(x.base), iva:[21,10,4,0].includes(+x.tipo_iva) ? +x.tipo_iva : 21, ivaDed:def.ivaDed ?? 100, irpfDed:def.irpfDed ?? 100,
+          foto, revisar:true, aviso: d.ticket_simplificado ? 'Parece un ticket simplificado: para deducir el IVA necesitas la factura completa con tu NIF.' : ''});
+      });
+    } catch(e){ errores++; toast(e.message); await new Promise(ok => setTimeout(ok, 1500)); }
+  }
+  progreso('');
+  if (creados.length === 1 && files.length === 1){ editGasto(null, creados[0]); toast('Revisa los datos y guarda'); return; }
+  if (creados.length){ S.gastos.push(...creados); save(); toast(`${creados.length} gastos añadidos${errores ? `, ${errores} con error` : ''}. Revisa los marcados.`); }
+}
+async function verFoto(path){
+  progreso('Abriendo foto…');
+  try {
+    const blob = await Cloud.fetchFile(path), url = URL.createObjectURL(blob);
+    progreso('');
+    const d = document.createElement('div'); d.className = 'ov'; d.style.zIndex = 65;
+    d.innerHTML = `<div class="md" style="max-width:720px"><div class="hd"><h2>Factura</h2><button class="btn ghost sm" id="fx">✕</button></div>${blob.type === 'application/pdf' ? `<a class="btn" href="${url}" target="_blank" rel="noopener">Abrir PDF</a>` : `<img src="${url}" style="width:100%;border-radius:10px">`}</div>`;
+    document.body.appendChild(d);
+    d.querySelector('#fx').onclick = () => { d.remove(); URL.revokeObjectURL(url); };
+  } catch(e){ progreso(''); toast(e.message); }
+}
 
 /* ============ Vista: Impuestos ============ */
 function vImpuestos(){
@@ -638,16 +731,16 @@ function vImpuestos(){
           <tr><td>28-29</td><td>IVA deducible de gastos<br><small style="color:var(--muted)">Base ${eur(a.baseDed)}</small></td><td class="num">${eur(a.cuotaDed)}</td></tr>
           ${a.isp ? `<tr><td>122</td><td>Operaciones con inversión del sujeto pasivo</td><td class="num">${eur(a.isp)}</td></tr>` : ''}
           <tr><td>46</td><td>Resultado régimen general</td><td class="num">${eur(a.diff)}</td></tr>
-          ${a.comp ? `<tr><td>110</td><td>Cuotas a compensar de periodos anteriores</td><td class="num">− ${eur(a.comp)}</td></tr>` : ''}
+          ${a.c110 ? `<tr><td>110</td><td>Pendiente de compensar de periodos anteriores</td><td class="num">${eur(a.c110)}</td></tr><tr><td>78</td><td>Compensado en este trimestre</td><td class="num">− ${eur(a.c78)}</td></tr>` : ''}
         </table>
         ${resBox(a.resultado, 'A ingresar', q === 4 ? 'A compensar o devolver' : 'A compensar en el siguiente')}
-        <div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn ghost sm" onclick="copy303(${q})">Copiar cifras</button></div>
+        <div class="row" style="margin-top:10px"><button class="btn sm" onclick="file303(${q})">⬇ Archivo para Hacienda</button><span class="sp"></span><button class="btn ghost sm" onclick="copy303(${q})">Copiar cifras</button></div>
       </div>
       <div class="card">
         <h2>Modelo 130 · IRPF ${q}T ${YEAR}</h2>
         <table class="cas">
           <tr><td>01</td><td>Ingresos desde el 1 de enero</td><td class="num">${eur(b.ing)}</td></tr>
-          <tr><td>02</td><td>Gastos deducibles desde el 1 de enero${S.settings.gdj ? `<br><small style="color:var(--muted)">Incluye ${eur(b.gdj)} de difícil justificación (5 %)</small>` : ''}</td><td class="num">${eur(r2(b.gas + b.gdj))}</td></tr>
+          <tr><td>02</td><td>Gastos deducibles desde el 1 de enero${S.settings.gdj ? `<br><small style="color:var(--muted)">Incluye ${eur(b.gdj)} de difícil justificación (5 %)</small>` : ''}</td><td class="num">${eur(b.c02)}</td></tr>
           <tr><td>03</td><td>Rendimiento neto</td><td class="num">${eur(b.c03)}</td></tr>
           <tr><td>04</td><td>20 % del rendimiento</td><td class="num">${eur(b.c04)}</td></tr>
           <tr><td>05</td><td>Pagos de trimestres anteriores</td><td class="num">− ${eur(b.c05)}</td></tr>
@@ -656,7 +749,7 @@ function vImpuestos(){
           ${b.c13 ? `<tr><td>13</td><td>Deducción por rendimientos bajos</td><td class="num">− ${eur(b.c13)}</td></tr>` : ''}
         </table>
         ${resBox(b.res, 'A ingresar', 'Negativo (presentas a cero)')}
-        <div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn ghost sm" onclick="copy130(${q})">Copiar cifras</button></div>
+        <div class="row" style="margin-top:10px"><button class="btn sm" onclick="file130(${q})">⬇ Archivo para Hacienda</button><span class="sp"></span><button class="btn ghost sm" onclick="copy130(${q})">Copiar cifras</button></div>
       </div>
     </div>
     <div class="card">
@@ -670,6 +763,16 @@ function vImpuestos(){
       </table>
       <p class="note">Los pagos del 130 se restan en la Renta del año siguiente. Si cobras cuota de autónomos y la apuntas como gasto, ya está incluida en estos cálculos.</p>
     </div>
+    <div class="card">
+      <h2>Cómo presentar con el archivo</h2>
+      <ol style="padding-left:20px;line-height:1.7;font-size:14px">
+        <li>Pulsa <b>⬇ Archivo para Hacienda</b> en el 303 y en el 130. Se descargan <b>303.txt</b> y <b>130.txt</b>.</li>
+        <li>Entra en la sede de la Agencia Tributaria (modelo 303 o 130 → <i>Presentar autoliquidación</i>) con tu certificado o Cl@ve.</li>
+        <li>Pulsa <b>Importar</b> y elige el archivo. Las casillas se rellenan solas.</li>
+        <li>Pulsa <b>Validar declaración</b>, revisa el resultado y presenta.</li>
+      </ol>
+      <p class="note">Hazlo desde el ordenador: el formulario de Hacienda funciona mejor que en el móvil. ${S.settings.nif ? '' : '<b style="color:var(--bad)">Falta tu NIF en Ajustes: sin él, Hacienda no acepta el archivo.</b>'}</p>
+    </div>
     <div class="card cal"><h2>Calendario fiscal ${YEAR}</h2><div class="list">${calendario(YEAR).map(calItem).join('')}</div>
       <p class="note">Si domicilias el pago, el plazo acaba unos 5 días antes. Para presentar necesitas certificado digital o Cl@ve.</p></div>
     <p class="note"><b>Importante:</b> estos números son un cálculo orientativo para estimación directa simplificada, a partir de lo que tienes apuntado en la app. Revísalos antes de presentar o confírmalos con tu gestor. Si más del 70 % de tus ingresos llevan retención, no estás obligado a presentar el 130. Desde el 1 de julio de 2027 los autónomos tendrán que facturar con un programa adaptado a Verifactu.</p>`;
@@ -678,6 +781,75 @@ function copyText(t){ (navigator.clipboard?.writeText(t) || Promise.reject()).th
 const n2 = v => r2(v).toLocaleString('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2});
 function copy303(q){ const a = m303(YEAR, q); let t = `Modelo 303 · ${q}T ${YEAR}\n`; for (const [k, g] of Object.entries(a.dev)) if (+k > 0) t += `Base ${k}%: ${n2(g.base)} · Cuota: ${n2(g.cuota)}\n`; t += `Total devengado (27): ${n2(a.devTot)}\nBase deducible (28): ${n2(a.baseDed)}\nCuota deducible (29): ${n2(a.cuotaDed)}\n${a.isp ? `ISP (122): ${n2(a.isp)}\n` : ''}${a.comp ? `Compensación (110): ${n2(a.comp)}\n` : ''}Resultado: ${n2(a.resultado)}`; copyText(t); }
 function copy130(q){ const b = m130(YEAR, q); copyText(`Modelo 130 · ${q}T ${YEAR}\n01: ${n2(b.ing)}\n02: ${n2(b.gas + b.gdj)}\n03: ${n2(b.c03)}\n04: ${n2(b.c04)}\n05: ${n2(b.c05)}\n06: ${n2(b.c06)}\n07: ${n2(b.c07)}\n${b.c13 ? `13: ${n2(b.c13)}\n` : ''}Resultado: ${n2(b.res)}`); }
+
+/* ============ Archivos para importar en la AEAT (diseños de registro oficiales) ============ */
+// Texto: solo letras, números y blancos, en mayúsculas, alineado a la izquierda
+const fA = (s, n) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim().padEnd(n).slice(0, n);
+// Importe: céntimos alineados a la derecha con ceros; si es negativo, "N" en la primera posición
+const fN = (v, n = 17) => { const c = String(Math.round(Math.abs(+v || 0) * 100)); return (v < 0 ? 'N' + c.padStart(n - 1, '0') : c.padStart(n, '0')).slice(-n); };
+const blanks = n => ' '.repeat(n);
+function chk(str, len, name){ if (str.length !== len) throw new Error(`${name}: ${str.length} en vez de ${len}`); return str; }
+function nifOk(){ const n = fA(S.settings.nif, 9).trim(); if (n.length < 8){ toast('Pon tu NIF en Ajustes antes de descargar'); go('ajustes'); return null; } return n; }
+function cabecera(modelo, y, q, contenido){
+  const per = q + 'T', nif = fA(S.settings.nif, 9);
+  const aux = '<AUX>' + blanks(70) + '0100' + blanks(4) + nif + blanks(213) + '</AUX>';
+  return `<T${modelo}0${y}${per}0000>` + aux + contenido + `</T${modelo}0${y}${per}0000>`;
+}
+const iban = () => S.settings.domiciliar ? fA(S.settings.iban, 34).replace(/ /g, '') : '';
+
+function file303(q){
+  if (!nifOk()) return;
+  const y = YEAR, a = m303(y, q), s = S.settings, ult = q === 4;
+  const dev = k => a.dev[k] || {base:0, cuota:0};
+  const tipo = a.resultado > 0 ? (s.domiciliar && s.iban ? 'U' : 'I') : a.resultado < 0 ? 'C' : 'N';
+  const nombre = `${s.apellidos || ''} ${s.nombrePila || s.nombre || ''}`;
+  let p1 = '<T30301000>' + ' ' + tipo + fA(s.nif, 9) + fA(nombre, 80) + y + q + 'T'
+    + '2' + '2' + '3' + '2' + '2' + '2'          // foral, devolución mensual, solo RG, conjunta, criterio caja, destinatario caja
+    + (ult ? '2' : ' ') + (ult ? '2' : ' ')        // prorrata especial: opción / revocación
+    + '2' + blanks(8) + ' ' + '2'                  // concurso, fecha auto, tipo concurso, SII
+    + (ult ? '2' : '0') + '0' + '0';               // exonerado 390, volumen distinto de cero, gasolinas
+  p1 += fN(0) + '00000' + fN(0);                   // [150-152]
+  p1 += fN(0) + '00000' + fN(0);                   // [165-167]
+  p1 += fN(dev(4).base) + '00400' + fN(dev(4).cuota);     // [01-03]
+  p1 += fN(0) + '00000' + fN(0);                          // [153-155]
+  p1 += fN(dev(10).base) + '01000' + fN(dev(10).cuota);   // [04-06]
+  p1 += fN(dev(21).base) + '02100' + fN(dev(21).cuota);   // [07-09]
+  p1 += fN(0) + fN(0) + fN(0) + fN(0) + fN(0) + fN(0);    // [10-15]
+  p1 += fN(0) + '00175' + fN(0) + fN(0) + '00050' + fN(0) + fN(0) + '00000' + fN(0) + fN(0) + '00140' + fN(0) + fN(0) + '00520' + fN(0); // recargo equivalencia
+  p1 += fN(0) + fN(0);                                    // [25-26]
+  p1 += fN(a.devTot);                                     // [27]
+  p1 += fN(a.baseDed) + fN(a.cuotaDed);                   // [28-29]
+  p1 += fN(0).repeat(10);                                 // [30-39]
+  p1 += fN(0) + fN(0) + fN(0) + fN(0) + fN(0);            // [40-44]
+  p1 += fN(a.cuotaDed) + fN(a.diff);                      // [45-46]
+  p1 += blanks(521) + blanks(13) + '</T30301000>';
+  chk(p1, 1581, 'Página 1');
+  let p3 = '<T30303000>' + fN(0) + fN(0) + fN(0) + fN(a.isp) + fN(0) + fN(0)   // [59] [60] [120] [122] [123] [124]
+    + fN(0) + fN(0) + fN(0) + fN(0) + fN(0)                                      // [62] [63] [74] [75] [76]
+    + fN(a.diff) + '10000' + fN(a.diff)                                          // [64] [65] [66]
+    + fN(0) + fN(a.c110) + fN(a.c78) + fN(a.c87)                                  // [77] [110] [78] [87]
+    + fN(0) + fN(0) + fN(a.resultado) + fN(0) + fN(0) + fN(0) + fN(a.resultado)  // [68] [108] [69] [70] [109] [112] [71]
+    + (a.sinActividad ? 'X' : ' ') + ' ' + blanks(13) + ' ' + fN(0) + ' ' + ' '
+    + blanks(546) + '</T30303000>';
+  chk(p3, 1017, 'Página 3');
+  const did = '<T303DID00>' + blanks(11) + (tipo === 'U' ? iban() : '').padEnd(34) + blanks(70) + blanks(35) + blanks(30) + blanks(2) + (tipo === 'U' ? '1' : '0') + blanks(617) + '</T303DID00>';
+  chk(did, 823, 'Página DID');
+  download('303.txt', cabecera('303', y, q, p1 + p3 + did), 'text/plain');
+  toast('303.txt descargado');
+}
+function file130(q){
+  if (!nifOk()) return;
+  const y = YEAR, b = m130(y, q), s = S.settings;
+  const tipo = b.res > 0 ? (s.domiciliar && s.iban ? 'U' : 'I') : 'N';
+  let p = '<T13001000>' + ' ' + tipo + fA(s.nif, 9) + fA(s.apellidos || s.nombre, 60) + fA(s.nombrePila || '', 20) + y + q + 'T'
+    + fN(b.ing) + fN(b.c02) + fN(b.c03) + fN(b.c04) + fN(b.c05) + fN(b.c06) + fN(b.c07)   // [01]-[07]
+    + fN(0) + fN(0) + fN(0) + fN(0)                                                         // [08]-[11]
+    + fN(b.c07) + fN(b.c13) + fN(b.res) + fN(0) + fN(0) + fN(b.res) + fN(0) + fN(b.res)   // [12]-[19]
+    + ' ' + blanks(13) + (tipo === 'U' ? iban() : '').padEnd(34) + blanks(96) + blanks(13) + '</T13001000>';
+  chk(p, 600, 'Modelo 130');
+  download('130.txt', cabecera('130', y, q, p), 'text/plain');
+  toast('130.txt descargado');
+}
 
 /* ============ Vista: Ajustes ============ */
 function vAjustes(){
@@ -688,6 +860,7 @@ function vAjustes(){
     <div class="card f" id="setForm">
       <h2>Datos del autónomo</h2>
       <div class="g2">${f('nombre','Nombre y apellidos')}${f('nif','NIF','text','Obligatorio en facturas')}</div>
+      <div class="g2">${f('apellidos','Apellidos (como en Hacienda)')}${f('nombrePila','Nombre (como en Hacienda)')}</div>
       <div class="g2">${f('comercial','Nombre comercial')}${f('telefono','Teléfono')}</div>
       ${f('direccion','Dirección fiscal')}
       <div class="g3">${f('cp','C.P.')}${f('ciudad','Población')}${f('provincia','Provincia')}</div>
@@ -699,6 +872,7 @@ function vAjustes(){
         <label class="fl">Retención por defecto<select data-k="irpfDefecto">${[0,7,15].map(v => `<option value="${v}" ${+s.irpfDefecto===v?'selected':''}>${v} %</option>`).join('')}</select></label></div>
       <div class="g2">${f('cuotaAutonomo','Cuota de autónomos mensual (€)','number')}${f('rendAnterior','Rendimiento neto del año pasado (€)','number','Opcional')}</div>
       <label class="chk"><input type="checkbox" data-k="gdj" ${s.gdj?'checked':''}> Aplicar 5 % de gastos de difícil justificación (máx. 2.000 €/año)</label>
+      <label class="chk"><input type="checkbox" data-k="domiciliar" ${s.domiciliar?'checked':''}> Domiciliar los pagos del 303 y 130 en mi IBAN (archivos para Hacienda)</label>
       <p class="note">Como instalador (actividad empresarial) lo normal es facturar <b>sin retención</b>. A constructoras, si eres subcontrata en una obra, usa «Inversión sujeto pasivo»: la factura va sin IVA y lo declara la constructora. El rendimiento del año pasado sirve para la deducción del 130 si ganaste menos de 12.000 €.</p>
       <div class="row"><span class="sp"></span><button class="btn" onclick="saveSettings()">Guardar ajustes</button></div>
     </div>
