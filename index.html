@@ -288,12 +288,19 @@ function calendario(y){
 /* ============ Nube (Supabase, opcional) ============ */
 const Cloud = {
   session: LS.get('almara_gestion_sb', null), timer: null,
-  get url(){ return (S.settings.sbUrl || '').replace(/\/$/, ''); },
-  get key(){ return S.settings.sbKey || ''; },
+  get url(){ return (S.settings.sbUrl || '').trim().replace(/\/+$/, '').replace(/\/(rest|auth)\/v1.*$/, ''); },
+  get key(){ return (S.settings.sbKey || '').trim(); },
   badge(st, txt){ const b = $('#syncBadge'); b.className = 'sync ' + (st || ''); b.textContent = txt; },
   async auth(body, grant){
+    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(this.url)) throw new Error('La URL del proyecto debe ser como https://xxxx.supabase.co');
     const r = await fetch(`${this.url}/auth/v1/token?grant_type=${grant}`, {method:'POST', headers:{apikey:this.key, 'Content-Type':'application/json'}, body:JSON.stringify(body)});
-    const j = await r.json(); if (!r.ok) throw new Error(j.error_description || j.msg || 'Error de acceso');
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok){
+      const code = j.error_code || j.code || '', raw = j.error_description || j.msg || j.message || j.error || '';
+      const ES = {invalid_credentials:'Correo o contraseña incorrectos (o ese correo no tiene cuenta en este Supabase)', email_not_confirmed:'El correo no está confirmado: confírmalo en Supabase → Authentication → Users', invalid_grant:'Correo o contraseña incorrectos', user_not_found:'Ese correo no tiene cuenta en este Supabase', over_request_rate_limit:'Demasiados intentos: espera unos minutos'};
+      let m = ES[code] || (/invalid api key|no api key/i.test(raw) ? 'La clave pública no es correcta: cópiala otra vez' : /invalid login/i.test(raw) ? ES.invalid_credentials : /not confirmed/i.test(raw) ? ES.email_not_confirmed : raw);
+      throw new Error((m || 'Error de acceso') + ` (${r.status})`);
+    }
     this.session = {at:j.access_token, rt:j.refresh_token, exp:Date.now() + (j.expires_in - 60) * 1000, uid:j.user.id, email:j.user.email};
     LS.set('almara_gestion_sb', this.session); return this.session;
   },
@@ -903,8 +910,8 @@ function saveSettings(){ readSettings(); save(); toast('Ajustes guardados'); }
 async function cloudLogin(){
   readSettings(); save(true);
   if (!Cloud.url || !Cloud.key) return toast('Falta la URL o la clave');
-  try { await Cloud.login($('#sbEmail').value.trim(), $('#sbPass').value); toast('Conectado'); await Cloud.sync(); render(); }
-  catch(e){ toast(e.message === 'Failed to fetch' ? 'No se puede conectar desde aquí' : e.message); }
+  try { await Cloud.login($('#sbEmail').value.trim().toLowerCase(), $('#sbPass').value); toast('Conectado'); await Cloud.sync(); render(); }
+  catch(e){ const m = e.message === 'Failed to fetch' || e.message === 'Load failed' ? 'No se encuentra el proyecto: revisa la URL' : e.message; modal(`<div class="hd"><h2>No se pudo conectar</h2><button class="btn ghost sm" onclick="closeModal()">✕</button></div><p style="line-height:1.5">${esc(m)}</p>`); }
 }
 
 /* ============ Exportar / importar ============ */
