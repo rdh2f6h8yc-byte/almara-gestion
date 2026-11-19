@@ -309,7 +309,7 @@ const Cloud = {
   async h(){ return {apikey:this.key, Authorization:'Bearer ' + await this.token(), 'Content-Type':'application/json'}; },
   async pull(){
     const r = await fetch(`${this.url}/rest/v1/gestion?user_id=eq.${this.session.uid}&select=data,updated_at`, {headers: await this.h()});
-    if (!r.ok){ const j = await r.json().catch(() => ({})); throw new Error(r.status === 404 || /gestion/.test(j.message || '') ? 'Falta crear la tabla en Supabase: ejecuta supabase.sql en el SQL Editor' : 'Error de la nube: ' + (j.message || r.status)); }
+    if (!r.ok){ const j = await r.json().catch(() => ({})); throw new Error(`Error de la nube (${r.status}${j.code ? ' ' + j.code : ''}): ${j.message || ''}`); }
     const rows = await r.json(); return rows[0] || null;
   },
   async push(){

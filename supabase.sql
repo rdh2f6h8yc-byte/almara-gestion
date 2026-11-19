@@ -28,3 +28,8 @@ create policy "facturas_select_own" on storage.objects for select using (bucket_
 create policy "facturas_insert_own" on storage.objects for insert with check (bucket_id = 'facturas' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy "facturas_update_own" on storage.objects for update using (bucket_id = 'facturas' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy "facturas_delete_own" on storage.objects for delete using (bucket_id = 'facturas' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- Permisos para que la app pueda leer y guardar (necesario en proyectos nuevos de Supabase)
+grant usage on schema public to authenticated;
+grant select, insert, update on table public.gestion to authenticated;
+notify pgrst, 'reload schema';
