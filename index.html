@@ -700,7 +700,7 @@ function progreso(txt){
 async function fotoGastos(files){
   files = [...(files || [])]; if (!files.length) return;
   if (!Cloud.session){ toast('Para leer facturas con foto, conecta la nube en Ajustes'); return go('ajustes'); }
-  const creados = []; let errores = 0;
+  const creados = []; let errores = 0; const msgs = [];
   for (let i = 0; i < files.length; i++){
     progreso(files.length > 1 ? `Leyendo factura ${i + 1} de ${files.length}…` : 'Leyendo la factura…');
     try {
@@ -721,10 +721,10 @@ async function fotoGastos(files){
           base:r2(x.base), iva:[21,10,4,0].includes(+x.tipo_iva) ? +x.tipo_iva : 21, ivaDed:def.ivaDed ?? 100, irpfDed:def.irpfDed ?? 100,
           foto, revisar:true, aviso: d.ticket_simplificado ? 'Parece un ticket simplificado: para deducir el IVA necesitas la factura completa con tu NIF.' : ''});
       });
-    } catch(e){ errores++; toast(e.message); await new Promise(ok => setTimeout(ok, 1500)); }
+    } catch(e){ errores++; msgs.push(e.message); }
   }
   progreso('');
-  if (!creados.length) return;
+  if (!creados.length){ if (msgs.length) modal(`<div class="hd"><h2>No se pudo leer la factura</h2><button class="btn ghost sm" onclick="closeModal()">✕</button></div><p style="line-height:1.5">${[...new Set(msgs)].map(esc).join('<br>')}</p>`); return; }
   // Se guardan siempre (marcados para revisar) para que no se pierdan aunque se cierre la ventana
   S.gastos.push(...creados);
   const y = yOf(creados[0].fecha), otroAño = y !== YEAR;

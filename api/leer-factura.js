@@ -41,20 +41,29 @@ const TOOL = {
   }
 };
 
-async function usuarioValido(req) {
-  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_ANON_KEY;
-  if (!url || !key) return true; // sin Supabase configurado no se comprueba la sesión
+const env = k => String(process.env[k] || '').trim().replace(/^["']|["']$/g, '');
+
+async function comprobarUsuario(req) {
+  const url = env('SUPABASE_URL').replace(/\/+$/, '').replace(/\/(rest|auth)\/v1.*$/, ''), key = env('SUPABASE_ANON_KEY');
+  if (!url || !key) return null; // sin Supabase configurado no se comprueba la sesión
   const auth = req.headers.authorization || '';
-  if (!auth.startsWith('Bearer ')) return false;
-  const r = await fetch(url.replace(/\/$/, '') + '/auth/v1/user', { headers: { apikey: key, Authorization: auth } });
-  return r.ok;
+  if (!auth.startsWith('Bearer ')) return 'falta la sesión';
+  try {
+    const r = await fetch(url + '/auth/v1/user', { headers: { apikey: key, Authorization: auth } });
+    if (r.ok) return null;
+    const j = await r.json().catch(() => ({}));
+    return `Supabase ${r.status}: ${j.msg || j.message || j.error_description || j.error || 'sin detalle'}`;
+  } catch (e) {
+    return 'no se puede conectar con ' + url + ' (' + e.message + ')';
+  }
 }
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
-  if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'Falta ANTHROPIC_API_KEY en Vercel' });
+  if (!env('ANTHROPIC_API_KEY')) return res.status(500).json({ error: 'Falta ANTHROPIC_API_KEY en Vercel' });
   try {
-    if (!(await usuarioValido(req))) return res.status(401).json({ error: 'Inicia sesión en la nube para leer facturas' });
+    const fallo = await comprobarUsuario(req);
+    if (fallo) return res.status(401).json({ error: 'No se pudo comprobar tu sesión: ' + fallo });
     const { data, mediaType } = req.body || {};
     if (!data || !mediaType) return res.status(400).json({ error: 'No llega la imagen' });
     const isPdf = mediaType === 'application/pdf';
@@ -64,9 +73,9 @@ module.exports = async (req, res) => {
 
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      headers: { 'x-api-key': env('ANTHROPIC_API_KEY'), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
+        model: env('ANTHROPIC_MODEL') || 'claude-sonnet-5-5',
         max_tokens: 1024,
         tools: [TOOL],
         tool_choice: { type: 'tool', name: 'registrar_factura' },
