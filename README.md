@@ -4,7 +4,8 @@ App web para llevar la gestión del autónomo de ALMARA: facturas, gastos, model
 
 - `index.html`: la app (una sola página, sin compilación).
 - `api/leer-factura.js`: lee una foto o PDF de una factura con Claude y devuelve sus datos.
-- `supabase.sql`: tabla de datos y carpeta privada de fotos en Supabase.
+- Usa el mismo Supabase que la app ALMARA (tabla `datos`, clave `gestion`; fotos en la carpeta `fotos/<usuario>/gestion/`). Lee los presupuestos de ALMARA (clave `presupuestos`) para pasarlos a factura.
+- `supabase.sql`: ya no hace falta (era del proyecto anterior).
 
 ## Vercel
 Importar el repositorio y desplegar sin cambiar nada. En *Settings → Environment Variables* añadir:
@@ -12,8 +13,6 @@ Importar el repositorio y desplegar sin cambiar nada. En *Settings → Environme
 | Variable | Valor |
 | --- | --- |
 | `ANTHROPIC_API_KEY` | clave de la API de Anthropic |
-| `SUPABASE_URL` | URL del proyecto de Supabase |
-| `SUPABASE_ANON_KEY` | clave anon del proyecto |
 
 Después, *Redeploy*.
 

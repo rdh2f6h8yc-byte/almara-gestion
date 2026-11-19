@@ -1,6 +1,5 @@
-// Datos públicos de Supabase para la pantalla de inicio de sesión (la clave publishable es pública).
+// Datos públicos de Supabase (mismo proyecto que la app ALMARA).
 module.exports = (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const env = k => String(process.env[k] || '').trim().replace(/^["']|["']$/g, '');
-  res.status(200).json({ url: env('SUPABASE_URL').replace(/\/+$/, ''), key: env('SUPABASE_ANON_KEY') });
+  res.status(200).json({ url: 'https://ugryeciokjktvuuxvqcu.supabase.co', key: 'sb_publishable_QPBtZJ8mDOM7XMNzU9Hm_g_dhMBUTla' });
 };

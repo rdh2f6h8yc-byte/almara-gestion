@@ -300,7 +300,9 @@ function calendario(y){
   ];
 }
 
-/* ============ Nube (Supabase, opcional) ============ */
+/* ============ Nube: mismo proyecto de Supabase que la app ALMARA ============ */
+// La clave publishable es pública por diseño; la seguridad la ponen las reglas (RLS) de la base de datos.
+const SB_ALMARA = {url:'https://ugryeciokjktvuuxvqcu.supabase.co', key:'sb_publishable_QPBtZJ8mDOM7XMNzU9Hm_g_dhMBUTla'};
 const Cloud = {
   session: LS.get('almara_gestion_sb', null), timer: null,
   get url(){ return (S.settings.sbUrl || '').trim().replace(/\/+$/, '').replace(/\/(rest|auth)\/v1.*$/, ''); },
@@ -330,14 +332,21 @@ const Cloud = {
   },
   async h(){ return {apikey:this.key, Authorization:'Bearer ' + await this.token(), 'Content-Type':'application/json'}; },
   async pull(){
-    const r = await fetch(`${this.url}/rest/v1/gestion?user_id=eq.${this.session.uid}&select=data,updated_at`, {headers: await this.h()});
+    // Los datos de Gestión van en la tabla "datos" de ALMARA, con la clave "gestion"
+    const r = await fetch(`${this.url}/rest/v1/datos?select=valor,actualizado&clave=eq.gestion&user_id=eq.${this.session.uid}`, {headers: await this.h()});
     if (!r.ok){ const j = await r.json().catch(() => ({})); throw new Error(`Error de la nube (${r.status}${j.code ? ' ' + j.code : ''}): ${j.message || ''}`); }
-    const rows = await r.json(); return rows[0] || null;
+    const rows = await r.json(); return rows[0] ? {data:rows[0].valor, updated_at:rows[0].actualizado} : null;
   },
   async push(){
     const data = structuredClone(S); data.settings.sbKey = ''; // la clave no se sube
-    const r = await fetch(`${this.url}/rest/v1/gestion`, {method:'POST', headers:{...await this.h(), Prefer:'resolution=merge-duplicates'}, body:JSON.stringify({user_id:this.session.uid, data, updated_at:new Date(S.updatedAt || Date.now()).toISOString()})});
+    const r = await fetch(`${this.url}/rest/v1/datos?on_conflict=user_id,clave`, {method:'POST', headers:{...await this.h(), Prefer:'resolution=merge-duplicates,return=minimal'}, body:JSON.stringify({user_id:this.session.uid, clave:'gestion', valor:data, actualizado:new Date(S.updatedAt || Date.now()).toISOString()})});
     if (!r.ok) throw new Error('No se pudo guardar en la nube');
+  },
+  // Presupuestos de la app ALMARA (solo lectura)
+  async presupuestos(){
+    const r = await fetch(`${this.url}/rest/v1/datos?select=valor&clave=eq.presupuestos&user_id=eq.${this.session.uid}`, {headers: await this.h()});
+    if (!r.ok) throw new Error('No se pudieron leer los presupuestos (' + r.status + ')');
+    const rows = await r.json(); return ((rows[0] && rows[0].valor) || {}).lista || [];
   },
   queuePush(){
     clearTimeout(this.timer); this.badge('', 'Guardando…');
@@ -358,14 +367,14 @@ const Cloud = {
     } catch(e){ this.badge('err', 'Error nube'); this.lastError = e.message; toast(e.message); console.warn(e); }
   },
   async upload(path, blob){
-    const r = await fetch(`${this.url}/storage/v1/object/facturas/${path}`, {method:'POST', headers:{apikey:this.key, Authorization:'Bearer ' + await this.token(), 'Content-Type':blob.type, 'x-upsert':'true'}, body:blob});
+    const r = await fetch(`${this.url}/storage/v1/object/fotos/${path}`, {method:'POST', headers:{apikey:this.key, Authorization:'Bearer ' + await this.token(), 'Content-Type':blob.type, 'x-upsert':'true'}, body:blob});
     if (!r.ok) throw new Error('No se pudo guardar la foto');
   },
   async fetchFile(path){
-    const r = await fetch(`${this.url}/storage/v1/object/authenticated/facturas/${path}`, {headers:{apikey:this.key, Authorization:'Bearer ' + await this.token()}});
+    const r = await fetch(`${this.url}/storage/v1/object/authenticated/fotos/${path}`, {headers:{apikey:this.key, Authorization:'Bearer ' + await this.token()}});
     if (!r.ok) throw new Error('No se encuentra la foto'); return r.blob();
   },
-  async remove(path){ try { await fetch(`${this.url}/storage/v1/object/facturas/${path}`, {method:'DELETE', headers:{apikey:this.key, Authorization:'Bearer ' + await this.token()}}); } catch(e){} },
+  async remove(path){ try { await fetch(`${this.url}/storage/v1/object/fotos/${path}`, {method:'DELETE', headers:{apikey:this.key, Authorization:'Bearer ' + await this.token()}}); } catch(e){} },
   logout(){ this.session = null; try { localStorage.removeItem('almara_gestion_sb'); } catch(e){} this.badge('', ''); }
 };
 
@@ -416,6 +425,7 @@ function vInicio(){
     </div>
     <div class="row" style="margin-bottom:14px">
       <button class="btn" onclick="editFactura()">+ Nueva factura</button>
+      <button class="btn sec" onclick="desdePresupuesto()">📋 Factura desde presupuesto</button>
       <button class="btn sec" onclick="editGasto()">+ Nuevo gasto</button>
       <label class="btn sec" style="cursor:pointer">📷 Foto factura<input type="file" accept="image/*,application/pdf" multiple hidden onchange="fotoGastos(this.files);this.value=''"></label>
     </div>
@@ -464,7 +474,7 @@ function vFacturas(){
   list.sort((a, b) => b.fecha.localeCompare(a.fecha) || b.num.localeCompare(a.num));
   const tot = list.reduce((s, f) => s + facTotals(f).total, 0);
   $('#view').innerHTML = `
-    <div class="row"><h1>Facturas</h1><span class="sp"></span><button class="btn" onclick="editFactura()">+ Nueva</button></div>
+    <div class="row"><h1>Facturas</h1><span class="sp"></span><button class="btn sec" onclick="desdePresupuesto()">📋 Desde presupuesto</button><button class="btn" onclick="editFactura()">+ Nueva</button></div>
     <p class="sub">${list.length} facturas · ${eur(tot)} total</p>
     <div class="row" style="margin-bottom:10px">
       <div class="seg">${[['todas','Todas'],['pend','Pendientes'],['cob','Cobradas']].map(([k,l]) => `<button class="${fFiltro===k?'act':''}" onclick="fFiltro='${k}';render()">${l}</button>`).join('')}</div>
@@ -482,10 +492,10 @@ function clientes(){
   const m = {}; S.facturas.forEach(f => { if (f.cliente?.nombre) m[f.cliente.nombre] = f.cliente; }); return m;
 }
 let FD = null;
-function editFactura(id){
+function editFactura(id, pre){
   const ex = id ? S.facturas.find(f => f.id === id) : null;
   const fecha = today();
-  FD = ex ? structuredClone(ex) : {id:uid(), num:nextNum(fecha), fecha, cliente:{nombre:'',nif:'',dir:'',email:''}, lineas:[{c:'',q:1,p:0,iva:String(S.settings.ivaDefecto)}], irpf:S.settings.irpfDefecto, estado:'pendiente', fcobro:'', notas:'', _new:true};
+  FD = pre ? pre : ex ? structuredClone(ex) : {id:uid(), num:nextNum(fecha), fecha, cliente:{nombre:'',nif:'',dir:'',email:''}, lineas:[{c:'',q:1,p:0,iva:String(S.settings.ivaDefecto)}], irpf:S.settings.irpfDefecto, estado:'pendiente', fcobro:'', notas:'', _new:true};
   const cl = clientes();
   modal(`
     <div class="hd"><h2>${ex ? 'Factura ' + esc(FD.num) : 'Nueva factura'}</h2><button class="btn ghost sm" onclick="closeModal()">✕</button></div>
@@ -565,6 +575,43 @@ function dupFactura(){
   readFactura(); const c = structuredClone(FD);
   c.id = uid(); c.fecha = today(); c.num = nextNum(c.fecha); c.estado = 'pendiente'; c.fcobro = '';
   S.facturas.push(c); save(); closeModal(); editFactura(c.id); toast('Duplicada como ' + c.num);
+}
+
+/* ============ Presupuesto de la app ALMARA → factura ============ */
+// Mismo cálculo que la app ALMARA: precio sin IVA (p) o precio con IVA incluido (iva), siempre al 21 %
+const presBase = x => r2(x.iva !== undefined && x.iva !== null ? (+x.iva) / 1.21 : (+x.p || 0));
+const presTotal = pr => { let base = 0, tci = 0; for (const x of pr.partidas || []){ const q = +x.q || 0, bu = presBase(x), bl = r2(bu * q); base += bl; tci += (x.iva != null ? r2(+x.iva * q) : r2(bl * 1.21)); } base = r2(base); return pr.tipo !== 'empresa' ? r2(tci) : r2(base + r2(base * 0.21)); };
+let PRES = [];
+async function desdePresupuesto(){
+  progreso('Cargando presupuestos de ALMARA…');
+  try { PRES = await Cloud.presupuestos(); } catch(e){ progreso(''); return toast(e.message); }
+  progreso('');
+  PRES = PRES.filter(p => (p.partidas || []).length).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '') || String(b.numero).localeCompare(String(a.numero)));
+  pintarPres('');
+}
+function pintarPres(q){
+  const fact = {}; S.facturas.forEach(f => { if (f.presupuesto) fact[f.presupuesto.id] = f.num; });
+  const b = q.toLowerCase();
+  const list = PRES.filter(p => !b || [p.numero, p.titulo, p.cliente && p.cliente.nombre].join(' ').toLowerCase().includes(b));
+  const est = p => fact[p.id] ? `<span class="pill info">Facturado · ${esc(fact[p.id])}</span>` : p.enlace && p.enlace.estado === 'aceptado' ? '<span class="pill ok">Aceptado</span>' : p.enlace && p.enlace.estado === 'rechazado' ? '<span class="pill bad">Rechazado</span>' : '';
+  modal(`<div class="hd"><h2>Elige un presupuesto</h2><button class="btn ghost sm" onclick="closeModal()">✕</button></div>
+    <input class="search" id="presQ" placeholder="Buscar número o cliente…" value="${esc(q)}" oninput="clearTimeout(window._pq);window._pq=setTimeout(()=>{pintarPres(this.value);const i=$('#presQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)">
+    <div class="list">${list.length ? list.map(p => `<div class="it" onclick="presAFactura('${esc(p.id)}')"><div class="m"><div class="t">${esc((p.cliente && p.cliente.nombre) || 'Sin cliente')}</div><div class="s">${esc(p.numero)} · ${fdate(p.fecha)}${p.titulo ? ' · ' + esc(p.titulo) : ''} ${est(p)}</div></div><div class="a num">${eur(presTotal(p))}</div></div>`).join('') : `<div class="empty">${PRES.length ? 'Ningún presupuesto coincide.' : 'No hay presupuestos en la app ALMARA con esta cuenta.'}</div>`}</div>`);
+}
+function presAFactura(id){
+  const p = PRES.find(x => x.id === id); if (!p) return;
+  const ya = S.facturas.find(f => f.presupuesto && f.presupuesto.id === id);
+  const crear = () => {
+    const fecha = today(), c = p.cliente || {};
+    const pre = {id:uid(), num:nextNum(fecha), fecha,
+      cliente:{nombre:c.nombre || '', nif:c.nif || '', dir:c.direccion || '', email:c.email || ''},
+      lineas:(p.partidas || []).map(x => ({c:(x.c || '') + (x.d ? ' – ' + x.d : ''), q:+x.q || 0, p:presBase(x), iva:'21'})),
+      irpf:S.settings.irpfDefecto, estado:'pendiente', fcobro:'', notas:`Según presupuesto ${p.numero}${p.titulo ? ' (' + p.titulo + ')' : ''}.`,
+      presupuesto:{id:p.id, numero:p.numero}, _new:true};
+    editFactura(null, pre);
+    toast('Revisa la factura y pulsa Guardar');
+  };
+  if (ya) confirmBox(`Este presupuesto ya está facturado en la ${ya.num}. ¿Hacer otra factura igualmente?`, crear); else crear();
 }
 
 /* Factura imprimible */
@@ -709,7 +756,7 @@ async function fotoGastos(files){
       const d = await r.json().catch(() => ({error:'La app no está publicada en Vercel'}));
       if (!r.ok) throw new Error(d.error || 'Error al leer');
       if (d.es_factura === false) throw new Error('Esa foto no parece una factura');
-      const fotoId = uid(), path = `${Cloud.session.uid}/${fotoId}.${f.ext}`;
+      const fotoId = uid(), path = `${Cloud.session.uid}/gestion/${fotoId}.${f.ext}`;
       let foto = '';
       try { await Cloud.upload(path, f.blob); foto = path; } catch(e){ console.warn(e); }
       const des = (d.desglose && d.desglose.length) ? d.desglose : [{tipo_iva:21, base:r2((d.total || 0) / 1.21), cuota:0}];
@@ -999,12 +1046,6 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 /* ============ Arranque ============ */
 function fromHash(){ const h = location.hash.slice(1); if (VIEWS.some(v => v[0] === h)) VIEW = h; }
 window.addEventListener('hashchange', () => { fromHash(); render(); });
-async function cargarConfig(){
-  try {
-    const r = await fetch('/api/config', {cache:'no-store'});
-    if (r.ok){ const c = await r.json(); if (c.url) S.settings.sbUrl = c.url; if (c.key) S.settings.sbKey = c.key; LS.set('almara_gestion', S); }
-  } catch(e){}
-}
 function showLogin(msg){
   $('#app').style.display = 'none'; closeModal();
   const sinConfig = !Cloud.url || !Cloud.key;
@@ -1048,8 +1089,13 @@ function cerrarSesion(){
   });
 }
 (async () => {
-  if (Cloud.session){ entrar(); Cloud.sync(); }
-  else { showLogin(); await cargarConfig(); if (!Cloud.session) showLogin(); }
+  if (S.settings.sbUrl !== SB_ALMARA.url){
+    // Cambio al proyecto de ALMARA: se vuelve a entrar y los datos de este móvil se suben al nuevo sitio
+    const habia = !!Cloud.session;
+    Cloud.logout(); S.settings.sbUrl = SB_ALMARA.url; S.settings.sbKey = SB_ALMARA.key; LS.set('almara_gestion', S);
+    showLogin(habia ? 'Ahora Gestión está unida a la app ALMARA. Entra con tu cuenta de ALMARA.' : '');
+  } else if (Cloud.session){ entrar(); Cloud.sync(); }
+  else showLogin();
 })();
 </script>
 </body>

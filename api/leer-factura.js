@@ -1,8 +1,7 @@
 // ALMARA Gestión · Lee una factura (foto o PDF) con Claude y devuelve sus datos.
 // Variables de entorno en Vercel:
 //   ANTHROPIC_API_KEY  (obligatoria)  clave de la API de Anthropic
-//   SUPABASE_URL       (recomendada)  URL del proyecto de Supabase; si está, solo usuarios con sesión pueden usarlo
-//   SUPABASE_ANON_KEY  (recomendada)  clave anon del mismo proyecto
+//   (solo pueden usarlo usuarios con sesión en el Supabase de la app ALMARA)
 //   ANTHROPIC_MODEL    (opcional)     por defecto claude-sonnet-5-5
 
 const CATS = ['Material', 'Herramientas', 'Vehículo y combustible', 'Cuota de autónomos', 'Teléfono e internet',
@@ -45,7 +44,8 @@ const TOOL = {
 const env = k => String(process.env[k] || '').trim().replace(/^["']|["']$/g, '');
 
 async function comprobarUsuario(req) {
-  const url = env('SUPABASE_URL').replace(/\/+$/, '').replace(/\/(rest|auth)\/v1.*$/, ''), key = env('SUPABASE_ANON_KEY');
+  // Mismo proyecto de Supabase que la app ALMARA (la clave publishable es pública)
+  const url = 'https://ugryeciokjktvuuxvqcu.supabase.co', key = 'sb_publishable_QPBtZJ8mDOM7XMNzU9Hm_g_dhMBUTla';
   if (!url || !key) return null; // sin Supabase configurado no se comprueba la sesión
   const auth = req.headers.authorization || '';
   if (!auth.startsWith('Bearer ')) return 'falta la sesión';
