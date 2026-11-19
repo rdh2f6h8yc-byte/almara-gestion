@@ -14,7 +14,8 @@ const TOOL = {
   input_schema: {
     type: 'object',
     properties: {
-      es_factura: { type: 'boolean', description: 'false si la imagen no es una factura, ticket o recibo' },
+      es_factura: { type: 'boolean', description: 'true si es cualquier documento de compra con importes (factura, factura proforma, ticket, recibo, albarán valorado, presupuesto). false SOLO si no tiene nada que ver con una compra (una foto cualquiera).' },
+      tipo_documento: { type: 'string', enum: ['factura', 'ticket', 'proforma', 'presupuesto', 'albaran', 'otro'] },
       fecha: { type: 'string', description: 'Fecha de la factura en formato AAAA-MM-DD' },
       proveedor: { type: 'string', description: 'Nombre o razón social de quien emite la factura' },
       nif_proveedor: { type: 'string', description: 'NIF/CIF del emisor, sin espacios ni guiones; vacío si no aparece' },

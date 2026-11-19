@@ -719,7 +719,7 @@ async function fotoGastos(files){
         creados.push({id:uid(), fecha, proveedor:d.proveedor || '', nif:(d.nif_proveedor || '').toUpperCase(), num:d.numero || '',
           concepto:(d.concepto || '') + (des.length > 1 ? ` (IVA ${x.tipo_iva} %)` : ''), cat:CATS.includes(d.categoria) ? d.categoria : 'Otros',
           base:r2(x.base), iva:[21,10,4,0].includes(+x.tipo_iva) ? +x.tipo_iva : 21, ivaDed:def.ivaDed ?? 100, irpfDed:def.irpfDed ?? 100,
-          foto, revisar:true, aviso: d.ticket_simplificado ? 'Parece un ticket simplificado: para deducir el IVA necesitas la factura completa con tu NIF.' : ''});
+          foto, revisar:true, aviso: ['proforma','presupuesto','albaran'].includes(d.tipo_documento) ? `Es ${d.tipo_documento === 'proforma' ? 'una factura proforma' : d.tipo_documento === 'albaran' ? 'un albarán' : 'un presupuesto'}: no sirve para deducir. Pide al proveedor la factura definitiva y súbela cuando la tengas.` : d.ticket_simplificado || d.tipo_documento === 'ticket' ? 'Parece un ticket simplificado: para deducir el IVA necesitas la factura completa con tu NIF.' : ''});
       });
     } catch(e){ errores++; msgs.push(e.message); }
   }
