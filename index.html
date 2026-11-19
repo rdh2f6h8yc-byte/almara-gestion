@@ -106,6 +106,12 @@ label.fl{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:6
 .md .hd h2{margin:0;flex:1}
 .md .ft{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
 .md .ft .sp{flex:1}
+.login{position:fixed;inset:0;z-index:40;background:linear-gradient(160deg,#0b1f3a 0%,#132b4f 60%,#1e3f70 100%);align-items:center;justify-content:center;padding:20px}
+.lg{background:#fff;border-radius:20px;padding:30px 22px 24px;width:100%;max-width:380px;display:grid;gap:14px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.lgBrand{font-size:30px;font-weight:800;letter-spacing:.1em;text-align:center;color:var(--navy)}
+.lgSub{text-align:center;color:var(--muted);font-size:14px;margin-top:-10px;margin-bottom:6px}
+.lgErr{color:var(--bad);font-size:13px;text-align:center;min-height:16px}
+.lgMsg{background:var(--warnbg);color:#92400e;border-radius:10px;padding:10px;font-size:13px;text-align:center}
 .spin{width:34px;height:34px;border:3px solid var(--accent2);border-top-color:var(--accent);border-radius:50%;margin:6px auto 0;animation:sp 0.8s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 .toast{position:fixed;left:50%;bottom:calc(84px + var(--safe-b));transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;z-index:80;opacity:0;transition:opacity .2s;pointer-events:none}
@@ -139,6 +145,8 @@ label.fl{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:6
 </style>
 </head>
 <body>
+<div id="login" class="login" style="display:none"></div>
+<div id="app" style="display:none">
 <header class="top">
   <div class="brand">ALMARA<small>Gestión del autónomo</small></div>
   <div class="sp"></div>
@@ -150,6 +158,7 @@ label.fl{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:6
   <main id="view"></main>
 </div>
 <nav class="tabs" id="tabNav"></nav>
+</div>
 <div id="modalRoot"></div>
 <div class="toast" id="toast"></div>
 <div id="printArea"></div>
@@ -305,7 +314,14 @@ const Cloud = {
     LS.set('almara_gestion_sb', this.session); return this.session;
   },
   login(email, password){ return this.auth({email, password}, 'password'); },
-  async token(){ if (Date.now() > this.session.exp) await this.auth({refresh_token:this.session.rt}, 'refresh_token'); return this.session.at; },
+  async token(){
+    if (!this.session) { showLogin(); throw new Error('Sesión cerrada'); }
+    if (Date.now() > this.session.exp){
+      try { await this.auth({refresh_token:this.session.rt}, 'refresh_token'); }
+      catch(e){ if (/\(4\d\d\)/.test(e.message)){ this.logout(); showLogin('Tu sesión ha caducado. Vuelve a entrar.'); } throw e; }
+    }
+    return this.session.at;
+  },
   async h(){ return {apikey:this.key, Authorization:'Bearer ' + await this.token(), 'Content-Type':'application/json'}; },
   async pull(){
     const r = await fetch(`${this.url}/rest/v1/gestion?user_id=eq.${this.session.uid}&select=data,updated_at`, {headers: await this.h()});
@@ -344,7 +360,7 @@ const Cloud = {
     if (!r.ok) throw new Error('No se encuentra la foto'); return r.blob();
   },
   async remove(path){ try { await fetch(`${this.url}/storage/v1/object/facturas/${path}`, {method:'DELETE', headers:{apikey:this.key, Authorization:'Bearer ' + await this.token()}}); } catch(e){} },
-  logout(){ this.session = null; try { localStorage.removeItem('almara_gestion_sb'); } catch(e){} this.badge('', 'Local'); }
+  logout(){ this.session = null; try { localStorage.removeItem('almara_gestion_sb'); } catch(e){} this.badge('', ''); }
 };
 
 /* ============ Navegación ============ */
@@ -884,12 +900,9 @@ function vAjustes(){
       <div class="row"><span class="sp"></span><button class="btn" onclick="saveSettings()">Guardar ajustes</button></div>
     </div>
     <div class="card f">
-      <h2>Sincronizar en la nube (Supabase)</h2>
-      <p class="note" style="margin:0">Para tener los datos en el móvil y el ordenador a la vez. Puedes usar el mismo proyecto de Supabase que la app ALMARA y entrar con tu mismo correo.</p>
-      ${logged ? `<div class="row"><span class="pill ok">Conectado</span><span style="font-size:14px">${esc(logged.email)}</span><span class="sp"></span><button class="btn sec sm" onclick="Cloud.sync()">Sincronizar ahora</button><button class="btn ghost sm" onclick="Cloud.logout();render()">Salir</button></div>`
-      : `${f('sbUrl','URL del proyecto','url','https://xxxx.supabase.co')}${f('sbKey','Clave anon (pública)','text')}
-        <div class="g2"><label class="fl">Email<input id="sbEmail" type="email" value="${esc(s.email)}"></label><label class="fl">Contraseña<input id="sbPass" type="password"></label></div>
-        <div class="row"><span class="sp"></span><button class="btn" onclick="cloudLogin()">Conectar</button></div>`}
+      <h2>Cuenta</h2>
+      <p class="note" style="margin:0">Tus datos se guardan en la nube y los ves en el móvil y en el ordenador entrando con este correo.</p>
+      <div class="row"><span class="pill ok">Conectado</span><span style="font-size:14px">${esc(logged ? logged.email : '')}</span><span class="sp"></span><button class="btn sec sm" onclick="Cloud.sync()">Sincronizar ahora</button><button class="btn ghost sm" onclick="cerrarSesion()">Cerrar sesión</button></div>
     </div>
     <div class="card f">
       <h2>Copia de seguridad</h2>
@@ -907,12 +920,6 @@ function readSettings(){
   });
 }
 function saveSettings(){ readSettings(); save(); toast('Ajustes guardados'); }
-async function cloudLogin(){
-  readSettings(); save(true);
-  if (!Cloud.url || !Cloud.key) return toast('Falta la URL o la clave');
-  try { await Cloud.login($('#sbEmail').value.trim().toLowerCase(), $('#sbPass').value); toast('Conectado'); await Cloud.sync(); render(); }
-  catch(e){ const m = e.message === 'Failed to fetch' || e.message === 'Load failed' ? 'No se encuentra el proyecto: revisa la URL' : e.message; modal(`<div class="hd"><h2>No se pudo conectar</h2><button class="btn ghost sm" onclick="closeModal()">✕</button></div><p style="line-height:1.5">${esc(m)}</p>`); }
-}
 
 /* ============ Exportar / importar ============ */
 function download(name, text, type){
@@ -981,8 +988,58 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 /* ============ Arranque ============ */
 function fromHash(){ const h = location.hash.slice(1); if (VIEWS.some(v => v[0] === h)) VIEW = h; }
 window.addEventListener('hashchange', () => { fromHash(); render(); });
-fromHash(); render();
-if (Cloud.session) Cloud.sync();
+async function cargarConfig(){
+  try {
+    const r = await fetch('/api/config', {cache:'no-store'});
+    if (r.ok){ const c = await r.json(); if (c.url) S.settings.sbUrl = c.url; if (c.key) S.settings.sbKey = c.key; LS.set('almara_gestion', S); }
+  } catch(e){}
+}
+function showLogin(msg){
+  $('#app').style.display = 'none'; closeModal();
+  const sinConfig = !Cloud.url || !Cloud.key;
+  $('#login').style.display = 'flex';
+  $('#login').innerHTML = `<form class="lg" onsubmit="event.preventDefault();doLogin()">
+      <div class="lgBrand">ALMARA</div><div class="lgSub">Gestión del autónomo</div>
+      ${msg ? `<div class="lgMsg">${esc(msg)}</div>` : ''}
+      ${sinConfig ? `<label class="fl">URL del proyecto<input id="lgUrl" value="${esc(S.settings.sbUrl)}" placeholder="https://xxxx.supabase.co" autocapitalize="off"></label>
+        <label class="fl">Clave pública<input id="lgKey" value="${esc(S.settings.sbKey)}" autocapitalize="off"></label>` : ''}
+      <label class="fl">Correo<input id="lgEmail" type="email" autocomplete="username" value="${esc(LS.get('almara_gestion_last', '') || '')}" required></label>
+      <label class="fl">Contraseña<input id="lgPass" type="password" autocomplete="current-password" required></label>
+      <button class="btn" id="lgBtn" style="width:100%;justify-content:center;padding:13px">Entrar</button>
+      <div id="lgErr" class="lgErr"></div>
+    </form>`;
+  setTimeout(() => { const e = $('#lgEmail'); (e.value ? $('#lgPass') : e).focus(); }, 50);
+}
+async function doLogin(){
+  const btn = $('#lgBtn'), err = $('#lgErr');
+  if ($('#lgUrl')){ S.settings.sbUrl = $('#lgUrl').value.trim(); S.settings.sbKey = $('#lgKey').value.trim(); LS.set('almara_gestion', S); }
+  const email = $('#lgEmail').value.trim().toLowerCase();
+  btn.disabled = true; btn.textContent = 'Entrando…'; err.textContent = '';
+  try {
+    await Cloud.login(email, $('#lgPass').value);
+    LS.set('almara_gestion_last', email);
+    await Cloud.sync(); entrar();
+  } catch(e){
+    err.textContent = e.message === 'Failed to fetch' || e.message === 'Load failed' ? 'Sin conexión o URL del proyecto incorrecta' : e.message;
+    btn.disabled = false; btn.textContent = 'Entrar';
+  }
+}
+function entrar(){ $('#login').style.display = 'none'; $('#login').innerHTML = ''; $('#app').style.display = ''; fromHash(); render(); }
+function cerrarSesion(){
+  confirmBox('¿Cerrar sesión? Tus datos siguen guardados en la nube.', async () => {
+    try { clearTimeout(Cloud.timer); await Cloud.push(); } catch(e){}
+    const cfg = {sbUrl:S.settings.sbUrl, sbKey:S.settings.sbKey};
+    Cloud.logout();
+    S = structuredClone(DEFAULT); Object.assign(S.settings, cfg);
+    try { localStorage.removeItem('almara_gestion'); } catch(e){}
+    LS.set('almara_gestion', S);
+    showLogin();
+  });
+}
+(async () => {
+  if (Cloud.session){ entrar(); Cloud.sync(); }
+  else { showLogin(); await cargarConfig(); if (!Cloud.session) showLogin(); }
+})();
 </script>
 </body>
 </html>
