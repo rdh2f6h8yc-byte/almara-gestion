@@ -78,13 +78,13 @@ module.exports = async (req, res) => {
         model: env('ANTHROPIC_MODEL') || 'claude-sonnet-5-5',
         max_tokens: 1024,
         tools: [TOOL],
-        tool_choice: { type: 'tool', name: 'registrar_factura' },
+        tool_choice: { type: 'auto' },
         messages: [{
           role: 'user',
           content: [archivo, {
             type: 'text',
             text: 'Es una factura de gasto de un autónomo instalador (Starlink, WiFi, redes, cámaras, electricidad) en España. ' +
-              'Extrae los datos con la herramienta. Los importes en euros con punto decimal. Si solo aparece el total con IVA incluido, ' +
+              'Extrae los datos llamando SIEMPRE a la herramienta registrar_factura, sin escribir nada más. Los importes en euros con punto decimal. Si solo aparece el total con IVA incluido, ' +
               'calcula la base y la cuota. Elige la categoría más adecuada (gasolina o peajes: Vehículo y combustible; cable, conectores, equipos: Material).'
           }]
         }]
@@ -93,8 +93,12 @@ module.exports = async (req, res) => {
     const j = await r.json();
     if (!r.ok) return res.status(502).json({ error: j.error?.message || 'Error al leer la factura' });
     const out = (j.content || []).find(c => c.type === 'tool_use');
-    if (!out) return res.status(502).json({ error: 'No se pudo leer la factura' });
-    return res.status(200).json(out.input);
+    if (out) return res.status(200).json(out.input);
+    // Si el modelo responde en texto, se intenta sacar el JSON
+    const txt = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
+    const m = txt.match(/\{[\s\S]*\}/);
+    if (m) { try { return res.status(200).json(JSON.parse(m[0])); } catch (e) {} }
+    return res.status(502).json({ error: 'No se pudo leer la factura. Prueba con una foto más nítida.' });
   } catch (e) {
     return res.status(500).json({ error: 'Error del servidor: ' + e.message });
   }
